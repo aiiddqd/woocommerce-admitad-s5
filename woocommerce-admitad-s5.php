@@ -27,18 +27,7 @@ class woo_admitad{
         );
     });
 
-
-    // add_filter( 'upload_mimes', array($this, 'additional_mime_types') );
-
   }
-
-
-  function additional_mime_types( $mimes ) {
-    	$mimes['xml'] = 'application/xml';
-    	// $mimes['tmp'] = 'text/tmp';
-
-    	return $mimes;
-    }
 
   function ui_management_page_callback(){
 
@@ -59,8 +48,11 @@ class woo_admitad{
 
     function start(){
 
-      //Timb https://www.admitad.com/ru/webmaster/websites/583212/offers/15006/#products
       $url = get_option('admitad_url');
+      if(empty($url)){
+        printf('<p>No save feed URL: %s</p>', 'Go to Settings and save URL');
+        return false;
+      }
 
       if($att_id = get_transient( 'woo_at_media_id' )){
         $this->work($att_id);
@@ -116,8 +108,6 @@ class woo_admitad{
 
     function save_file_by_url($url){
 
-      if(empty($url))
-        return false;
 
 
       $temp_file = download_url( $url, $timeout = 333 );
