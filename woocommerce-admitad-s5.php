@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: WooCommerce Admitad S5
-Version: 0.4
+Version: 0.5
 Plugin URI: ${TM_PLUGIN_BASE}
 Description: Connect Admitad CPA network for WooCommerce catalog
 Author: AY
@@ -27,6 +27,14 @@ class woo_admitad{
         );
     });
 
+    add_filter( 'upload_mimes', array($this, 'additional_mime_types') );
+
+
+  }
+
+  function additional_mime_types( $mimes ) {
+      	$mimes['xml'] = 'application/xml';
+      	return $mimes;
   }
 
   function ui_management_page_callback(){
@@ -98,17 +106,24 @@ class woo_admitad{
 
     function product_save_from_offer($xml, $reader){
       printf('<h2>%s</h2>', (string)$xml->name);
+      $article = (string)$reader->getAttribute('id');
+
+      if(empty($article)){
+        printf('<p>Нет артикля: %s</p>', (string)$xml->name);
+
+        return false;
+
+      }
+
+
 
       printf('<p>id: %s</p>', $reader->getAttribute('id'));
       printf('<p>price: %s</p>', (string)$xml->price);
-      printf('<p>url: %s</p>', (string)$xml->url);
 
       $img_url = (string)$xml->picture;
       printf('<p>picture: %s</p>', $img_url);
 
-      $article = (string)$reader->getAttribute('id');
-      if(empty($article))
-        return false;
+
 
       $product_id = wc_get_product_id_by_sku($article);
       if(empty($product_id)){
@@ -128,6 +143,30 @@ class woo_admitad{
       } else {
         $this->save_image_product_from_url(null, $product_id);
       }
+
+      wp_set_object_terms( $product_id, 'external', 'product_type' );
+
+
+      $url = (string)$xml->url;
+      printf('<p>url: %s</p>', $url);
+
+      update_post_meta( $product_id, '_product_url', $url);
+      update_post_meta( $product_id, '_button_text', "Купить");
+
+
+      if($product->is_type( 'external' ) ){
+
+  			if ( isset( $url ) ) {
+  				$product->set_product_url( $url );
+          $product->set_button_text( 'Купить' );
+  	    }
+
+      }
+
+      wp_update_post( array(
+        'ID'          =>  $product_id,
+        'post_status' => 'publish',
+      ));
       //
       // //Price Retail 'salePrices'
       // if(isset($data_of_source['salePrices'][0]['value'])){
