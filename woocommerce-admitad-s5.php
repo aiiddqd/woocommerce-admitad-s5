@@ -1,12 +1,14 @@
 <?php
 /*
 Plugin Name: WooCommerce Admitad S5
-Version: 0.2
+Version: 0.3
 Plugin URI: ${TM_PLUGIN_BASE}
 Description: Connect Admitad CPA network for WooCommerce catalog
 Author: AY
 Author URI: ${TM_HOMEPAGE}
 */
+
+require_once 'inc/class-menu-settings.php';
 
 class woo_admitad{
 
@@ -26,7 +28,7 @@ class woo_admitad{
     });
 
 
-    add_filter( 'upload_mimes', array($this, 'additional_mime_types') );
+    // add_filter( 'upload_mimes', array($this, 'additional_mime_types') );
 
   }
 
@@ -58,7 +60,7 @@ class woo_admitad{
     function start(){
 
       //Timb https://www.admitad.com/ru/webmaster/websites/583212/offers/15006/#products
-      $url = 'http://export.admitad.com/ru/webmaster/websites/583212/products/export_adv_products/?user=yumashev&code=5d6968c590&feed_id=15074&format=xml';
+      $url = get_option('admitad_url');
 
       if($att_id = get_transient( 'woo_at_media_id' )){
         $this->work($att_id);
@@ -83,13 +85,29 @@ class woo_admitad{
       $i = 0;
       while($reader->read()){
 
-        var_dump($reader->readString());
-        echo '<hr>';
+        // var_dump($reader->readString());
+        if ($reader->nodeType == XMLReader::ELEMENT && $reader->name == 'offer'){
+          $xml = simplexml_load_string($reader->readOuterXML());
+
+          printf('<h2>%s</h2>', (string)$xml->name);
+
+          printf('<p>id: %s</p>', $reader->getAttribute('id'));
+          printf('<p>price: %s</p>', (string)$xml->price);
+          printf('<p>url: %s</p>', (string)$xml->url);
+          printf('<p>picture: %s</p>', (string)$xml->picture);
+
+          var_dump($xml);
+          echo '<hr>';
+          $i++;
+
+        }
 
         if($i > 11){
           break;
         }
       }
+
+      $reader->close();
     }
 
 
@@ -97,6 +115,10 @@ class woo_admitad{
 
 
     function save_file_by_url($url){
+
+      if(empty($url))
+        return false;
+
 
       $temp_file = download_url( $url, $timeout = 333 );
 
