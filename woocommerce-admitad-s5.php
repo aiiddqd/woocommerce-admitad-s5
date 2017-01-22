@@ -1,11 +1,11 @@
 <?php
 /*
 Plugin Name: WooCommerce Admitad S5
-Version: 0.5
+Version: 0.6
 Plugin URI: ${TM_PLUGIN_BASE}
 Description: Connect Admitad CPA network for WooCommerce catalog
 Author: AY
-Author URI: ${TM_HOMEPAGE}
+Author URI: https://github.com/yumashev/
 */
 
 require_once 'inc/class-menu-settings.php';
@@ -63,19 +63,30 @@ class woo_admitad{
       }
 
       if($att_id = get_transient( 'woo_at_media_id' )){
-        $this->work($att_id);
+        $this->read_xml_file($att_id);
       } else {
-        $att_id = $this->save_file_by_url($url);
-        set_transient( 'woo_at_media_id', $att_id, HOUR_IN_SECONDS );
-        $this->work($att_id);
+        $att_id = $this->save_xml_by_url($url);
+        if(intval($att_id)){
+          set_transient( 'woo_at_media_id', $att_id, DAY_IN_SECONDS );
+          printf('<p>File saved: %s. Reload page.</p>', $att_id);
+        } else {
+          printf('<p>File not saved: %s.</p>', $url);
+        }
       }
 
     }
 
 
-    function work($att_id){
+    function read_xml_file($att_id){
 
       $file = get_attached_file( $att_id );
+
+      if(empty($file)){
+        delete_transient( 'woo_at_media_id');
+        printf('<p>File not found in base: %s. Cache clear. Reload page.</p>', $att_id);
+        return false;
+      }
+
       printf('<p>Work with file: %s</p>', $file);
 
       $reader = new XMLReader;
@@ -85,7 +96,6 @@ class woo_admitad{
       $i = 0;
       while($reader->read()){
 
-        // var_dump($reader->readString());
         if ($reader->nodeType == XMLReader::ELEMENT && $reader->name == 'offer'){
           $xml = simplexml_load_string($reader->readOuterXML());
 
@@ -95,7 +105,7 @@ class woo_admitad{
 
         }
 
-        if($i > 111){
+        if($i > 200){
           break;
         }
       }
@@ -103,49 +113,68 @@ class woo_admitad{
       $reader->close();
     }
 
-
+    /**
+     * Product save from XML data
+     *
+     * @param XMLObject $xml - xml data of offer
+     * @return return HTML
+     */
     function product_save_from_offer($xml, $reader){
+
       printf('<h2>%s</h2>', (string)$xml->name);
       $article = (string)$reader->getAttribute('id');
 
       if(empty($article)){
-        printf('<p>Нет артикля: %s</p>', (string)$xml->name);
-
+        printf('<p>Нет артикула: %s</p>', (string)$xml->name);
         return false;
-
       }
 
-
-
-      printf('<p>id: %s</p>', $reader->getAttribute('id'));
-      printf('<p>price: %s</p>', (string)$xml->price);
-
-      $img_url = (string)$xml->picture;
-      printf('<p>picture: %s</p>', $img_url);
-
-
+      printf('<p>id: %s</p>', $article);
 
       $product_id = wc_get_product_id_by_sku($article);
       if(empty($product_id)){
-
-        $product_id = $this->add_product($xml, $reader);
-        printf('<p>added product: %s</p>', $product_id);
-
-        //create
+        $product_id = $this->add_product($xml, $article);
+        printf('<p>+ Added product: %s</p>', $product_id);
       }
 
+      //$product_id
+      printf('<p><a href="%s" target="_blank">edit post link</a></p>', get_edit_post_link( $product_id, '' ));
       $product = wc_get_product($product_id);
 
 
+      $img_data = (array)$xml->picture;
+      printf('<p>Count pictures: %s</p>', count($img_data));
+
       //Image product update or rest
-      if( ! empty($img_url) ){
-        $this->save_image_product_from_url($img_url, $product_id);
-      } else {
-        $this->save_image_product_from_url(null, $product_id);
+      foreach ($img_data as $key => $value) {
+        $this->save_image_product_from_url($product_id, $value);
       }
 
-      wp_set_object_terms( $product_id, 'external', 'product_type' );
+      $images = get_posts('post_type=attachment&posts_per_page=-1&post_parent=' . $product_id);
 
+      //Check and save thumbnail
+      if( ! has_post_thumbnail($product_id) ){
+        if(isset($images[0]->ID)){
+          $thumbnail_id = $images[0]->ID;
+          if(set_post_thumbnail( $product_id, $thumbnail_id )){
+            printf('<p>+ Set thumbnail: %s</p>', $thumbnail_id );
+          }
+        }
+      }
+
+      //Save gallery
+      $gallery = array();
+      foreach ($images as $key => $value) {
+        if($thumbnail_id == $value->ID){
+          continue;
+        }
+
+        $gallery[] = $value->ID;
+        update_post_meta( $product_id, '_product_image_gallery', implode( ',', $gallery ) );
+      }
+
+
+      wp_set_object_terms( $product_id, 'external', 'product_type' );
 
       $url = (string)$xml->url;
       printf('<p>url: %s</p>', $url);
@@ -153,212 +182,120 @@ class woo_admitad{
       update_post_meta( $product_id, '_product_url', $url);
       update_post_meta( $product_id, '_button_text', "Купить");
 
+      update_post_meta( $product_id, '_visibility', "visible");
+      update_post_meta( $product_id, '_stock_status', "instock");
 
-      if($product->is_type( 'external' ) ){
+      update_post_meta( $product_id, 'xml_admitad', print_r($xml, true));
 
-  			if ( isset( $url ) ) {
-  				$product->set_product_url( $url );
-          $product->set_button_text( 'Купить' );
-  	    }
+      //Price Retail 'salePrices'
+      $price = (string)$xml->price;
+      printf('<p>price: %s</p>', $price);
 
+      if( isset($price) ){
+        $price_source = floatval($price);
+
+        if($price_source != $product->get_price()){
+
+          update_post_meta( $product_id, '_regular_price', $price_source );
+          update_post_meta( $product_id, '_price', $price_source );
+
+          printf('<p>+ Update product price: %s</p>', $price_source);
+        } else {
+          printf('<p>- No update product price: %s</p>', $price_source);
+        }
       }
 
-      wp_update_post( array(
-        'ID'          =>  $product_id,
-        'post_status' => 'publish',
-      ));
-      //
-      // //Price Retail 'salePrices'
-      // if(isset($data_of_source['salePrices'][0]['value'])){
-      //   $price_source = floatval($data_of_source['salePrices'][0]['value']/100);
-      //
-      //   if($price_source != $product->get_price()){
-      //     update_post_meta( $product->id, '_regular_price', $price_source );
-      //     update_post_meta( $product->id, '_price', $price_source );
-      //
-      //     printf('<p>+ Update product price: %s</p>', $price_source);
-      //   } else {
-      //     printf('<p>- No update product price: %s</p>', $price_source);
-      //   }
-      // }
+      $post_data = array(
+        'ID' => $product->id
+      );
 
-      var_dump($xml);
+      if( (string)$xml->description != (string)$product->post_content ){
+        $post_data['post_content'] = (string)$xml->description;
+        printf('<p>+ Change content: %s</p>', $product_id);
+      }
+
+      wp_update_post( $post_data );
+
+      do_action( 'woo_at_product_update', $product_id, $xml );
+
+      if(wp_publish_post($product_id)){
+        printf('<p>+ Publish product: %s</p>', $product_id);
+      } else {
+        printf('<p>- No publish product: %s</p>', $product_id);
+      }
+
       echo '<hr>';
-
     }
 
-    function save_image_product_from_url($img_url, $product_id){
+    /**
+     * Save image from URL
+     *
+     * @param int $product_id id product
+     * @param string $img_url url for image
+     * @return id attachment
+     */
+    function save_image_product_from_url( $product_id, $img_url ){
 
       if( empty($img_url) or empty($product_id) )
         return false;
 
+
       if( $this->is_image_save($product_id, $img_url) )
         return false;
 
+      $attachment_id = $this->save_img_by_url($img_url);
 
+      wp_update_post(array(
+        'ID' => $attachment_id,
+        'post_parent' => $product_id
+      ));
 
-      $upload = $this->upload_image_from_url( esc_url_raw( $img_url ) );
+      if(update_post_meta($attachment_id, '_href_at', esc_url_raw( $img_url ) )){
+        printf('<p>+ For product loaded image id: %s</p>', $attachment_id);
+      }
 
-			if ( is_wp_error( $upload ) ) {
-				return false;
-			}
-
-			$attachment_id = $this->set_uploaded_image_as_attachment( $upload, $product_id );
-
-
-			if ( ! wp_attachment_is_image( $attachment_id ) ) {
-				return false;
-			}
-
-      printf('<p>+ For product loaded image id: %s</p>', $attachment_id);
-
-      update_post_meta($attachment_id, '_href_at', esc_url_raw( $img_url ) );
-
-			set_post_thumbnail( $product_id, $attachment_id );
 
     }
 
     //Check saved image
     function is_image_save($product_id, $img_url){
-      $data = get_posts('post_type=attachment&meta_key=_href_at&meta_value=' . esc_url_raw($img_url) );
+
+      $args = array(
+        'post_type' => 'attachment',
+        'meta_key' => '_href_at',
+        'meta_value' =>esc_url_raw($img_url),
+        'post_parent' => $product_id
+      );
+
+      $data = get_posts($args);
       if( ! empty($data) ){
         return true;
       }
       return false;
     }
 
+    /*
+    * Add product from item XML Admitad
+    */
+    function add_product($xml, $article){
 
-    function upload_image_from_url($image_url, $file_name=''){
-      if(empty($file_name)){
-    		$file_name  = basename( current( explode( '?', $image_url ) ) );
-    	}
-
-    	$parsed_url = @parse_url( $image_url );
-
-    	// Check parsed URL.
-    	if ( ! $parsed_url || ! is_array( $parsed_url ) ) {
-    		return new WP_Error( 'woomss_invalid_image_url', sprintf( 'Invalid URL %s.', $image_url ), array( 'status' => 400 ) );
-    	}
-
-    	// Ensure url is valid.
-    	$image_url = esc_url_raw( $image_url );
-
-    	// Get the file.
-    	$response = wp_safe_remote_get( $image_url, array(
-    		'timeout' => 10,
-        'headers' => array(
-            'Authorization' => 'Basic ' . base64_encode( get_option( 'woomss_login' ) . ':' . get_option( 'woomss_pass' ) )
-        )
-    	));
-
-
-    	if ( is_wp_error( $response ) ) {
-    		return new WP_Error( 'woomss_invalid_remote_image_url', sprintf( __( 'Error getting remote image %s.', 'woocommerce' ), $image_url ) . ' ' . sprintf( __( 'Error: %s.', 'woocommerce' ), $response->get_error_message() ), array( 'status' => 400 ) );
-    	} elseif ( 200 !== wp_remote_retrieve_response_code( $response ) ) {
-    		return new WP_Error( 'woomss_invalid_remote_image_url', sprintf( __( 'Error getting remote image %s.', 'woocommerce' ), $image_url ), array( 'status' => 400 ) );
-    	}
-
-    	// Ensure we have a file name and type.
-    	$wp_filetype = wp_check_filetype( $file_name, wc_rest_allowed_image_mime_types() );
-
-    	if ( ! $wp_filetype['type'] ) {
-    		$headers = wp_remote_retrieve_headers( $response );
-    		if ( isset( $headers['content-disposition'] ) && strstr( $headers['content-disposition'], 'filename=' ) ) {
-    			$disposition = end( explode( 'filename=', $headers['content-disposition'] ) );
-    			$disposition = sanitize_file_name( $disposition );
-    			$file_name   = $disposition;
-    		} elseif ( isset( $headers['content-type'] ) && strstr( $headers['content-type'], 'image/' ) ) {
-    			$file_name = 'image.' . str_replace( 'image/', '', $headers['content-type'] );
-    		}
-    		unset( $headers );
-
-    		// Recheck filetype
-    		$wp_filetype = wp_check_filetype( $file_name, wc_rest_allowed_image_mime_types() );
-
-    		if ( ! $wp_filetype['type'] ) {
-    			return new WP_Error( 'woomss_invalid_image_type', __( 'Invalid image type.', 'woocommerce' ), array( 'status' => 400 ) );
-    		}
-    	}
-
-    	// Upload the file.
-    	$upload = wp_upload_bits( $file_name, '', wp_remote_retrieve_body( $response ) );
-
-    	if ( $upload['error'] ) {
-    		return new WP_Error( 'woomss_image_upload_error', $upload['error'], array( 'status' => 400 ) );
-    	}
-
-    	// Get filesize.
-    	$filesize = filesize( $upload['file'] );
-
-    	if ( 0 == $filesize ) {
-    		@unlink( $upload['file'] );
-    		unset( $upload );
-
-    		return new WP_Error( 'woomss_image_upload_file_error', __( 'Zero size file downloaded.', 'woocommerce' ), array( 'status' => 400 ) );
-    	}
-
-    	return $upload;
-
-    }
-
-
-    function set_uploaded_image_as_attachment($upload, $product_id){
-      $info    = wp_check_filetype( $upload['file'] );
-      $title = '';
-      $content = '';
-
-      if ( ! function_exists( 'wp_generate_attachment_metadata' ) ) {
-        include_once( ABSPATH . 'wp-admin/includes/image.php' );
-      }
-
-      if ( $image_meta = wp_read_image_metadata( $upload['file'] ) ) {
-        if ( trim( $image_meta['title'] ) && ! is_numeric( sanitize_title( $image_meta['title'] ) ) ) {
-          $title = wc_clean( $image_meta['title'] );
-        }
-        if ( trim( $image_meta['caption'] ) ) {
-          $content = wc_clean( $image_meta['caption'] );
-        }
-      }
-
-      $attachment = array(
-        'post_mime_type' => $info['type'],
-        'guid'           => $upload['url'],
-        'post_parent'    => $id,
-        'post_title'     => $title,
-        'post_content'   => $content,
-      );
-
-      $attachment_id = wp_insert_attachment( $attachment, $upload['file'], $id );
-      if ( ! is_wp_error( $attachment_id ) ) {
-        wp_update_attachment_metadata( $attachment_id, wp_generate_attachment_metadata( $attachment_id, $upload['file'] ) );
-      }
-
-      return $attachment_id;
-    }
-
-    function add_product($xml, $reader){
-
-        // $product = new WC_Product_Simple();
         $post_data = array(
           'post_type' => 'product',
           'post_title'    => wp_filter_post_kses( (string)$xml->name ),
+          'post_content'    => wp_filter_post_kses( (string)$xml->description ),
           'post_status'   => 'draft'
         );
 
-        // Вставляем запись в базу данных
         $post_id = wp_insert_post( $post_data );
-
-        if( ! empty($reader->getAttribute('id')) ){
-          update_post_meta( $post_id, $meta_key = '_sku', $article );
-        }
-
+        update_post_meta( $post_id, $meta_key = '_sku', $article );
         return $post_id;
+
     }
 
-
-    function save_file_by_url($url){
-
-
+    /**
+    * Save file from URL
+    */
+    function save_xml_by_url($url){
 
       $temp_file = download_url( $url, $timeout = 333 );
 
@@ -377,9 +314,7 @@ class woo_admitad{
       try {
 
           $file_name = 'admitad-data-' . date("Ymd-H-i-s") . '.xml';
-          // unlink( $temp_file );
 
-          // var_dump($file_name); exit;
           $file_data = array(
         		'name'     => $file_name,
         		'type'     => 'application/xml',
@@ -396,7 +331,86 @@ class woo_admitad{
 
         	// перемещаем временный файл в папку uploads
         	$results = wp_handle_sideload( $file_data, $overrides );
-          unlink( $temp_file );
+          $check_unlink = unlink( $temp_file );
+
+          if( ! empty($results['error']) ){
+        		// Добавьте сюда обработчик ошибок
+            throw new Exception("Ошибка переноса в папку загрузки WP...<br/>" . sprintf('<pre>%s</pre>',$results['error']), 1);
+
+        	} else {
+
+        		$filename = $results['file']; // полный путь до файла
+        		$local_url = $results['url']; // URL до файла в папке uploads
+        		$type = $results['type']; // MIME тип файла
+
+        		// делаем что-либо на основе полученных данных
+
+            $attachment = array(
+                'guid'           => $filename,
+                'post_mime_type' => $type,
+                'post_title'     => $file_data['name'],
+                'post_content'   => '',
+                'post_status'    => 'inherit'
+            );
+
+            // Вставляем запись в базу данных.
+            $attach_id = wp_insert_attachment( $attachment, $filename );
+
+            // Создадим метаданные для вложения и обновим запись в базе данных.
+            $attach_data = wp_generate_attachment_metadata( $attach_id, $filename );
+            wp_update_attachment_metadata( $attach_id, $attach_data );
+
+            return $attach_id;
+      	}
+
+      } catch (Exception $e) {
+          printf('<p><pre>%s</pre></p>',$e);
+          if(empty($check_unlink))
+            unlink( $temp_file );
+
+          return false;
+      }
+
+      return false;
+    }
+
+    /**
+    * Save image from URL
+    */
+    function save_img_by_url($url){
+
+      $temp_file = download_url( $url, $timeout = 333 );
+
+      if( is_wp_error( $temp_file ) ){
+        printf('<p>WP Error: %s</p>', $temp_file->get_error_messages());
+        return false;
+      }
+
+      try {
+
+          if(empty($file_name)){
+        		$file_name  = basename( current( explode( '?', $url ) ) );
+        	}
+
+          $wp_filetype = wp_check_filetype( $file_name, wc_rest_allowed_image_mime_types() );
+
+          $file_data = array(
+        		'name'     => $file_name,
+        		'type'     => $wp_filetype['type'],
+        		'tmp_name' => $temp_file,
+        		'error'    => 0,
+        		'size'     => filesize($temp_file),
+        	);
+
+          $overrides = array(
+        		'test_form' => false,
+        		'test_size' => false,
+        		'test_upload' => false,
+        	);
+
+        	// перемещаем временный файл в папку uploads
+        	$results = wp_handle_sideload( $file_data, $overrides );
+          $check_unlink = unlink( $temp_file );
 
           if( ! empty($results['error']) ){
         		// Добавьте сюда обработчик ошибок
@@ -433,13 +447,14 @@ class woo_admitad{
       } catch (Exception $e) {
 
           printf('<p><pre>%s</pre></p>',$e);
-          unlink( $temp_file );
+
+          if(empty($check_unlink)){
+            unlink( $temp_file );
+          }
           return false;
       }
 
       return false;
-
     }
-
 
 } new woo_admitad;
