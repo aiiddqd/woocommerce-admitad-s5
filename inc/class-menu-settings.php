@@ -55,7 +55,7 @@ class woo_admitad_settings {
 
   function admitad_url_display(){
     $f = 'admitad_url';
-    printf('<p><small>Вставьте ссылку на XML фид из <a href="%s" target="_blank">Admitad</a></small></p>', 'https://www.admitad.com/ru/webmaster/');
+    printf('<p><small>Вставьте ссылку на XML фид из <a href="%s" target="_blank">Admitad</a></small></p>', 'https://www.admitad.com/ru/webmaster/?ref=5d6968c590');
     printf('<input type="text" name="%s" value="%s"/ size="50">', $f, get_option($f));
   }
 
