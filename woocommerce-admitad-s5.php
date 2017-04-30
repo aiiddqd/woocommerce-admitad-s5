@@ -21,7 +21,6 @@ class AWW_Core{
 
   function __construct(){
 
-
     add_action('admin_menu', function(){
         add_management_page(
             $page_title = 'Admitad',
@@ -34,9 +33,106 @@ class AWW_Core{
 
     add_filter( 'upload_mimes', array($this, 'additional_mime_types') );
 
+    add_action( "wp_ajax_nopriv_aww_load", array( $this, "worker_by_url" ) );
+    add_action( "wp_ajax_aww_load", array( $this, "worker_by_url" ) );
 
   }
 
+  function worker_by_url(){
+
+
+    if( ! empty(get_transient('aww_stop')) ){
+      delete_transient('aww_stop');
+      set_transient('aww_stop_load', date("Y-m-d H:i:s"));
+      return false;
+    }
+
+    delete_transient('aww_stop_load');
+
+    if(empty($_GET['article'])){
+      $article_end = 0;
+    } else {
+      $article_end = sanitize_text_field($_GET['article']);
+    }
+
+    if(! empty($_GET['count'])){
+      $count = $_GET['count'];
+
+    }
+
+
+    if( 1 == $count ){
+      delete_transient('aww_count_redirect_load');
+
+    }
+
+    set_transient('aww_count_redirect_load', $count, DAY_IN_SECONDS);
+    $count_new = get_transient('aww_count_redirect_load')+1;
+
+
+    $last_article = $this->load_data_start_by_article($article_end);
+
+    $url_start = add_query_arg(array('action' => 'aww_load', 'article' => $last_article, 'count' => $count_new), admin_url( 'admin-ajax.php' ));
+
+    if($count_new > 111) return;
+    $o = wp_remote_get($url_start);
+    var_dump($o); exit;
+  }
+
+  function load_data_start_by_article($article_end = 0){
+
+    $att_id = get_transient( 'woo_at_media_id' );
+    $file = get_attached_file( $att_id );
+
+    printf('<p>Work with file: %s</p>', $file);
+
+    $this->reader = new XMLReader;
+    $this->reader->open($file);
+
+    if( ! empty($article_end)){
+      //Промотка до нужного артикула
+      $this->ff($article_end);
+    }
+
+    $i = 0;
+    while($this->reader->read()){
+
+
+      if ($this->reader->nodeType == XMLReader::ELEMENT && $this->reader->name == 'offer'){
+        $xml_offer = simplexml_load_string($this->reader->readOuterXML());
+        $article = (string)$xml_offer->attributes()->{'id'};
+
+        $i++;
+        set_transient('aww_import_count_product', $i + get_transient('aww_import_count_product'), HOUR_IN_SECONDS);
+
+        $this->product_save_from_offer($xml_offer);
+
+        if($i >= 3){
+          $this->reader->close();
+          return $article;
+        }
+
+      }
+
+    }
+
+    $this->reader->close();
+
+  }
+
+  //Функция промотки ридера
+  function ff($article_end){
+    while($this->reader->read()){
+      if ($this->reader->nodeType == XMLReader::ELEMENT && $this->reader->name == 'offer'){
+        $xml_offer = simplexml_load_string($this->reader->readOuterXML());
+        $article = (string)$xml_offer->attributes()->{'id'};
+        if($article == $article_end){
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 
   /**
    * User interface
@@ -46,6 +142,19 @@ class AWW_Core{
     $this->url = $_SERVER['REQUEST_URI'];
 
     echo '<h1>Управление Admitad</h1>';
+
+    $url_start = add_query_arg(array('action' => 'aww_load', 'article' => 0, 'count' => 1), admin_url( 'admin-ajax.php' ));
+    printf('<p>Ссылка старта: %s</p>',$url_start);
+
+    //Вывод количества обработок в фоне если есть данные
+    if( ! empty(get_transient('aww_count_redirect_load'))){
+      printf('<p>Количество редиректов загрузки: %s</p>',get_transient('aww_count_redirect_load'));
+    }
+
+    //Вывод времени остановки если есть метка
+    if( ! empty(get_transient('aww_stop_load'))){
+      printf('<p>Время остановки: %s</p>',get_transient('aww_stop_load'));
+    }
 
     printf('<p>Ссылка файла для загрузки: %s</p>',get_option('admitad_url'));
     printf('<p>Количество предложений в файле: %s</p>',get_transient('aww_count_products'));
@@ -61,11 +170,24 @@ class AWW_Core{
 
     if(empty($_GET['a'])){
       printf('<p><a href="%s">Старт</a></p>', add_query_arg('a', 'start', $this->url));
+      printf('<p><a href="%s">Стоп</a></p>', add_query_arg('a', 'stop', $this->url));
     } else {
       printf('<a href="%s">Вернуться...</a>', remove_query_arg( 'a', $this->url));
-      $this->start();
+      switch ($_GET['a']) {
+          case 'start':
+            $this->start();
+            break;
+          case 'stop':
+            $this->stop();
+            break;
+      }
     }
 
+  }
+
+  function stop(){
+    set_transient('aww_stop', 1, HOUR_IN_SECONDS);
+    wp_redirect(remove_query_arg( 'a', $this->url));
   }
 
   /**
@@ -104,6 +226,9 @@ class AWW_Core{
 
   }
 
+
+
+
   /**
    * Read xml file and update data
    */
@@ -120,15 +245,18 @@ class AWW_Core{
 
       if ($this->reader->nodeType == XMLReader::ELEMENT && $this->reader->name == 'offer'){
         $xml_offer = simplexml_load_string($this->reader->readOuterXML());
+        $article = (string)$xml_offer->attributes()->{'id'};
 
         $i++;
         printf('<h2>%s. %s</h2>', $i, (string)$xml_offer->name);
+        printf('<strong>Article: %s</strong>', $article);
+
         $this->product_save_from_offer($xml_offer);
 
 
       }
 
-      if($i >= 100){
+      if($i >= 33){
         break;
       }
     }
@@ -177,8 +305,6 @@ class AWW_Core{
         error_log(sprintf('<p>AWW: Нет артикула у продукта: %s</p>', (string)$xml_offer->name));
         return false;
       }
-
-      printf('<p>article: %s</p>', $article);
 
       $product_id = wc_get_product_id_by_sku($article);
       if(empty($product_id)){

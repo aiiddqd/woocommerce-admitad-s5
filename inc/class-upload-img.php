@@ -6,7 +6,7 @@ class AWW_Upload_Images {
 
   function __construct()
   {
-    // add_action('aww_product_update', [$this, 'update_pictures'], 10, 2);
+    add_action('aww_product_update', [$this, 'update_pictures'], 10, 2);
 
   }
 
@@ -128,10 +128,11 @@ class AWW_Upload_Images {
 
           	// перемещаем временный файл в папку uploads
           	$results = wp_handle_sideload( $file_data, $overrides );
-            $check_unlink = unlink( $temp_file );
+
 
             if( ! empty($results['error']) ){
           		// Добавьте сюда обработчик ошибок
+              $check_unlink = unlink( $temp_file );
               throw new Exception("Ошибка переноса в папку загрузки WP...<br/>" . sprintf('<pre>%s</pre>',$results['error']), 1);
 
           	} else {

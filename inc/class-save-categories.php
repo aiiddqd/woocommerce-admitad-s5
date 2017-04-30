@@ -11,19 +11,15 @@ class AWW_Save_Categorie{
     add_action('aww_product_update', [$this, 'save_category'], 10, 2);
   }
 
-  // Main function 
+  // Main function
   function save_category($product_id, $xml_offer){
 
     $xml_cat_id = (int)$xml_offer->categoryId;
 
+
     if(empty($this->categories)){
       $this->categories = $this->get_categories_from_xml();
     }
-
-    echo '<pre>';
-    var_dump($this->categories[$xml_cat_id]);
-    var_dump($xml_cat_id);
-    echo '</pre>';
 
     $term_id = $this->get_term_id_by_xml_id($xml_cat_id);
 
@@ -31,7 +27,15 @@ class AWW_Save_Categorie{
       $term_id = $this->add_term($xml_cat_id);
     }
 
-    wp_set_object_terms( $product_id, $term_id, 'product_cat' );
+    if(empty($term_id)){
+      printf('<p>! Категория пуста. id xml: %s</p>', $xml_cat_id);
+
+    } else {
+      wp_set_object_terms( $product_id, $term_id, 'product_cat' );
+      printf('<p>+ Выбрана категория: %s</p>', $term_id);
+    }
+
+
 
   }
 
@@ -49,6 +53,10 @@ class AWW_Save_Categorie{
       return false;
     } else {
       $term_id = $check_terms[0]->term_id;
+
+      return $term_id;
+
+
     }
 
   }
@@ -59,6 +67,7 @@ class AWW_Save_Categorie{
     $data_category = $this->categories[$xml_cat_id];
     $name = $data_category['name'];
     $xml_cat_parent_id = $data_category['parent_id'];
+
 
     //Если родителя нет, то просто добавляем термин
     if(empty($xml_cat_parent_id)){
@@ -121,8 +130,10 @@ class AWW_Save_Categorie{
           );
         }
       }
+
       $reader->close();
 
+      delete_transient('aww_categories');
       set_transient('aww_categories', $data, DAY_IN_SECONDS);
 
       return $data;
