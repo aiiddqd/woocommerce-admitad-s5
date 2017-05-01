@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: WooCommerce Admitad S5 (AWW)
-Version: 0.7
+Version: 0.8
 Plugin URI: https://github.com/yumashev/woocommerce-admitad-s5
 Description: Connect Admitad CPA network for WooCommerce catalog. Stack: Admitad WordPress WooCommerce (AWW)
 Author: AY
@@ -39,19 +39,135 @@ class AWW_Core{
 
   }
 
+  /**
+   * User interface
+   */
+  function user_interface(){
+
+    $this->url = $_SERVER['REQUEST_URI'];
+    ?>
+
+    <h1>Управление Admitad</h1>
+
+    <div class="aww_instructions">
+      <h2>Инструкции и информация</h2>
+      <ul>
+        <li>Перед началом убедитесь что на странице настроек указана ссылка на xml фид загрузки товаров</li>
+        <li>Вы можете запустить загрузку вручную в фоновом режиме</li>
+      </ul>
+
+      <?php
+        printf('<p>Ссылка файла для загрузки: %s</p>',get_option('admitad_url'));
+
+        if($woo_at_media_id = get_transient('woo_at_media_id')){
+          printf('<p>Загруженный файл (woo_at_media_id: %s). Ссылка %s</p>', $woo_at_media_id, get_attachment_link( $woo_at_media_id ));
+        }
+
+        printf('<p>Количество предложений в файле: %s</p>',get_transient('aww_count_products'));
+
+        if($aww_import_count_product = get_transient('aww_import_count_product')){
+          printf('<p>Количество загруженных продуктов за последние сутки (aww_import_count_product): %s</p>', $aww_import_count_product);
+        }
 
 
+      ?>
+
+    </div>
+
+    <div class="aww_background">
+      <h2>Фоновая загрузка</h2>
+      <div class="notice notice-success is-dismissible">
+        <?php
+          //Вывод количества обработок в фоне если есть данные
+          if( ! empty(get_transient('aww_count_redirect_load'))){
+            printf('<p>Количество редиректов загрузки: %s</p>',get_transient('aww_count_redirect_load'));
+          }
+
+          //Вывод последней отметки времени о итерации
+          if( ! empty(get_transient('aww_redirect_timestamp'))){
+            printf('<p>Время последней итерации загрузки: %s</p>',get_transient('aww_redirect_timestamp'));
+          }
+
+          //Вывод последней остановки
+          if( ! empty(get_transient('aww_stop_load'))){
+            printf('<p>Время последней остановки: %s</p>',get_transient('aww_stop_load'));
+          }
+
+          //Последняя полная загрузка - время остановки
+          if( ! empty(get_option('aww_end_load_timestamp'))){
+            printf('<p>Время последней полной загрузки: %s</p>',get_option('aww_end_load_timestamp'));
+          }
+        ?>
+      </div>
+
+      <?php
+
+        if(empty($_GET['a'])){
+          printf('<p><a href="%s" class="button">Старт фоновой работы</a></p>', add_query_arg('a', 'start-bg', $this->url));
+        }
+
+        if(empty($_GET['a'])){
+          printf('<p><a href="%s" class="button">Стоп фоновой работы</a></p>', add_query_arg('a', 'stop', $this->url));
+        }
+      ?>
+
+    </div>
+
+    <div class="aww_manual">
+      <h2>Ручная загрузка для отладки</h2>
+      <p>Ручная загрузка сделана тупо. Но позволяет понять характер проблем в случае их наличия. Она не может обрабатывать большой объем данных ввиду ограничений времени сессии на большинстве сайтов.</p>
+      <?php
+        if(empty($_GET['a'])){
+          printf('<p><a href="%s" class="button">Старт ручной загрузки</a></p>', add_query_arg('a', 'start', $this->url));
+        }
+      ?>
+    </div>
+    <hr>
+    <?php
+
+
+    if(isset($_GET['a'])){
+      printf('<a href="%s">Вернуться...</a>', remove_query_arg( 'a', $this->url));
+      switch ($_GET['a']) {
+          case 'start':
+            $this->start();
+            break;
+          case 'start-bg':
+            $this->start_background();
+            break;
+          case 'stop':
+            $this->stop();
+            break;
+      }
+
+    }
+
+  }
+
+  /*
+  * Запуск фоновой обработки из UI
+  */
+  function start_background(){
+    $url = add_query_arg(array('action' => 'aww_load', 'article' => 0, 'count' => 1), admin_url( 'admin-ajax.php' ));
+    wp_remote_get($url);
+    wp_redirect(remove_query_arg( 'a', $this->url), 302);
+    exit;
+  }
 
   function worker_by_url(){
 
 
     if( ! empty(get_transient('aww_stop')) ){
       delete_transient('aww_stop');
+      delete_transient('aww_redirect_timestamp');
       set_transient('aww_stop_load', date("Y-m-d H:i:s"));
       return false;
     }
 
     delete_transient('aww_stop_load');
+
+    set_transient('aww_redirect_timestamp', date("Y-m-d H:i:s"), DAY_IN_SECONDS);
+
 
     if(empty($_GET['article'])){
       $article_end = 0;
@@ -64,21 +180,20 @@ class AWW_Core{
 
     }
 
-
+    //Сброс счетчиков
     if( 1 == $count ){
       delete_transient('aww_count_redirect_load');
-
+      delete_transient('aww_import_count_product');
     }
 
     set_transient('aww_count_redirect_load', $count, DAY_IN_SECONDS);
     $count_new = get_transient('aww_count_redirect_load')+1;
 
-
     $last_article = $this->load_data_start_by_article($article_end);
 
     $url_start = add_query_arg(array('action' => 'aww_load', 'article' => $last_article, 'count' => $count_new), admin_url( 'admin-ajax.php' ));
 
-    if($count_new > 111) return;
+    if($count_new > 10000) return;
     $o = wp_remote_get($url_start);
     var_dump($o); exit;
   }
@@ -95,7 +210,7 @@ class AWW_Core{
 
     if( ! empty($article_end)){
       //Промотка до нужного артикула
-      $this->ff($article_end);
+      $this->reader_ff($article_end);
     }
 
     $i = 0;
@@ -107,7 +222,7 @@ class AWW_Core{
         $article = (string)$xml_offer->attributes()->{'id'};
 
         $i++;
-        set_transient('aww_import_count_product', $i + get_transient('aww_import_count_product'), HOUR_IN_SECONDS);
+        set_transient('aww_import_count_product', $i + get_transient('aww_import_count_product'), DAY_IN_SECONDS);
 
         $this->product_save_from_offer($xml_offer);
 
@@ -117,15 +232,21 @@ class AWW_Core{
         }
 
       }
-
     }
+
+    //Отметка времени о завершении работы
+    add_option($name ='aww_end_load_timestamp', $value = date("Y-m-d H:i:s"), '', 'no');
+
+    //По этому транзиту фоновый скрипт понимает что пора остановиться
+    set_transient('aww_stop', 1, HOUR_IN_SECONDS);
+
 
     $this->reader->close();
 
   }
 
   //Функция промотки ридера
-  function ff($article_end){
+  function reader_ff($article_end){
     while($this->reader->read()){
       if ($this->reader->nodeType == XMLReader::ELEMENT && $this->reader->name == 'offer'){
         $xml_offer = simplexml_load_string($this->reader->readOuterXML());
@@ -138,56 +259,6 @@ class AWW_Core{
     return false;
   }
 
-  /**
-   * User interface
-   */
-  function user_interface(){
-
-    $this->url = $_SERVER['REQUEST_URI'];
-
-    echo '<h1>Управление Admitad</h1>';
-
-    $url_start = add_query_arg(array('action' => 'aww_load', 'article' => 0, 'count' => 1), admin_url( 'admin-ajax.php' ));
-    printf('<p>Ссылка старта: %s</p>',$url_start);
-
-    //Вывод количества обработок в фоне если есть данные
-    if( ! empty(get_transient('aww_count_redirect_load'))){
-      printf('<p>Количество редиректов загрузки: %s</p>',get_transient('aww_count_redirect_load'));
-    }
-
-    //Вывод времени остановки если есть метка
-    if( ! empty(get_transient('aww_stop_load'))){
-      printf('<p>Время остановки: %s</p>',get_transient('aww_stop_load'));
-    }
-
-    printf('<p>Ссылка файла для загрузки: %s</p>',get_option('admitad_url'));
-    printf('<p>Количество предложений в файле: %s</p>',get_transient('aww_count_products'));
-
-    if($woo_at_media_id = get_transient('woo_at_media_id')){
-      printf('<p>ID файла (woo_at_media_id): %s</p>', $woo_at_media_id);
-    }
-
-    if($aww_import_count_product = get_transient('aww_import_count_product')){
-      printf('<p>Количество загруженных (aww_import_count_product): %s</p>', $aww_import_count_product);
-
-    }
-
-    if(empty($_GET['a'])){
-      printf('<p><a href="%s">Старт</a></p>', add_query_arg('a', 'start', $this->url));
-      printf('<p><a href="%s">Стоп</a></p>', add_query_arg('a', 'stop', $this->url));
-    } else {
-      printf('<a href="%s">Вернуться...</a>', remove_query_arg( 'a', $this->url));
-      switch ($_GET['a']) {
-          case 'start':
-            $this->start();
-            break;
-          case 'stop':
-            $this->stop();
-            break;
-      }
-    }
-
-  }
 
   function stop(){
     set_transient('aww_stop', 1, HOUR_IN_SECONDS);
