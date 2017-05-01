@@ -12,6 +12,7 @@ require_once 'inc/class-menu-settings.php';
 require_once 'inc/class-data-saving.php';
 require_once 'inc/class-upload-img.php';
 require_once 'inc/class-save-categories.php';
+require_once 'inc/class-external-links.php';
 
 class AWW_Core{
 
@@ -37,6 +38,9 @@ class AWW_Core{
     add_action( "wp_ajax_aww_load", array( $this, "worker_by_url" ) );
 
   }
+
+
+
 
   function worker_by_url(){
 
