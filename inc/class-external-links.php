@@ -34,13 +34,13 @@ class AWW_External_Links {
   */
   function replace_buy_url_in_loop($url, $product){
     return sprintf( '<a target="_blank" rel="nofollow" href="%s" data-quantity="%s" data-product_id="%s" data-product_sku="%s" class="%s">%s</a>',
-		  esc_url( $product->add_to_cart_url() ),
-		  esc_attr( isset( $quantity ) ? $quantity : 1 ),
-		  esc_attr( $product->get_id() ),
-		  esc_attr( $product->get_sku() ),
-		  esc_attr( isset( $class ) ? $class : 'button' ),
-		  esc_html( $product->add_to_cart_text() )
-	  );
+      esc_url( $product->add_to_cart_url() ),
+      esc_attr( isset( $quantity ) ? $quantity : 1 ),
+      esc_attr( $product->get_id() ),
+      esc_attr( $product->get_sku() ),
+      esc_attr( isset( $class ) ? $class : 'button' ),
+      esc_html( $product->add_to_cart_text() )
+    );
   }
 
   /*
@@ -101,7 +101,7 @@ class AWW_External_Links {
   */
   function wcpee_change_url($url, $product){
     if(! empty($url)){
-      $url = get_permalink($product->id) . 'gurl/';
+      $url = get_permalink($product->get_id()) . 'gurl/';
     }
     return $url;
   }
@@ -128,11 +128,11 @@ class AWW_External_Links {
     //Уточняем число переходов в метаполе если адрес есть и будет переход
     if( ! empty($url) ){
 
-      $count = get_post_meta($product->id, 'wcpee_count', true);
+      $count = get_post_meta($product->get_id(), 'wcpee_count', true);
       if( ! empty($count) ) {
-        update_post_meta($product->id, 'wcpee_count', (int)$count +1);
+        update_post_meta($product->get_id(), 'wcpee_count', (int)$count +1);
       } else {
-        update_post_meta($product->id, 'wcpee_count', 1);
+        update_post_meta($product->get_id(), 'wcpee_count', 1);
       }
 
       wp_redirect($url, 301);

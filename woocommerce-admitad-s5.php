@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: WooCommerce Admitad S5 (AWW)
-Version: 0.8
+Version: 0.9
 Plugin URI: https://github.com/yumashev/woocommerce-admitad-s5
 Description: Connect Admitad CPA network for WooCommerce catalog. Stack: Admitad WordPress WooCommerce (AWW)
 Author: AY
@@ -446,34 +446,34 @@ class AWW_Core{
       $file_name = 'admitad-data-' . date("Ymd-H-i-s") . '.xml';
 
       $file_data = array(
-    		'name'     => $file_name,
-    		'type'     => 'application/xml',
-    		'tmp_name' => $temp_file,
-    		'error'    => 0,
-    		'size'     => filesize($temp_file),
-    	);
+        'name'     => $file_name,
+        'type'     => 'application/xml',
+        'tmp_name' => $temp_file,
+        'error'    => 0,
+        'size'     => filesize($temp_file),
+      );
 
       $overrides = array(
-    		'test_form' => false,
-    		'test_size' => false,
-    		'test_upload' => false,
-    	);
+        'test_form' => false,
+        'test_size' => false,
+        'test_upload' => false,
+      );
 
-    	// перемещаем временный файл в папку uploads
-    	$results = wp_handle_sideload( $file_data, $overrides );
+      // перемещаем временный файл в папку uploads
+      $results = wp_handle_sideload( $file_data, $overrides );
 
       if( ! empty($results['error']) ){
-    		// Добавьте сюда обработчик ошибок
+        // Добавьте сюда обработчик ошибок
         $check_unlink = unlink( $temp_file );
         throw new Exception("Ошибка переноса в папку загрузки WP...<br/>" . sprintf('<pre>%s</pre>',$results['error']), 1);
 
-    	} else {
+      } else {
 
-    		$filename = $results['file']; // полный путь до файла
-    		$local_url = $results['url']; // URL до файла в папке uploads
-    		$type = $results['type']; // MIME тип файла
+        $filename = $results['file']; // полный путь до файла
+        $local_url = $results['url']; // URL до файла в папке uploads
+        $type = $results['type']; // MIME тип файла
 
-    		// делаем что-либо на основе полученных данных
+        // делаем что-либо на основе полученных данных
 
         $attachment = array(
             'guid'           => $filename,
@@ -492,7 +492,7 @@ class AWW_Core{
 
         set_transient( 'woo_at_media_id', $attach_id, DAY_IN_SECONDS );
 
-    	}
+      }
 
     } catch (Exception $e) {
         // printf('<p><pre>%s</pre></p>',$e);
@@ -514,8 +514,8 @@ class AWW_Core{
    * @return $mimes array
    */
   public function additional_mime_types( $mimes ) {
-      	$mimes['xml'] = 'application/xml';
-      	return $mimes;
+        $mimes['xml'] = 'application/xml';
+        return $mimes;
   }
 
 } new AWW_Core;
